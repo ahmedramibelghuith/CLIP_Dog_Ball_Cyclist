@@ -1,0 +1,12 @@
+# Seuls les fichiers nécessaires au pipeline et à ses tests entrent dans l'image.
+**
+!Dockerfile
+!.dockerignore
+!requirements.txt
+!main.py
+!src/
+!src/**
+!tests/
+!tests/**
+**/__pycache__/
+**/*.py[cod]

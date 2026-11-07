@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+artifacts/
+data/
+flickr_subset2/
+results/
+*.egg-info/
+build/
+dist/
