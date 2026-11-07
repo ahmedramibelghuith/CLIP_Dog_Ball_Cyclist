@@ -1,22 +1,22 @@
-# CLIP · Recherche multimodale image–texte
+# CLIP · Multimodal Image–Text Retrieval
 
 ![Python 3.11–3.12](https://img.shields.io/badge/Python-3.11%E2%80%933.12-3776AB?logo=python&logoColor=white)
 ![TensorFlow 2.20](https://img.shields.io/badge/TensorFlow-2.20-FF6F00?logo=tensorflow&logoColor=white)
 ![Docker CPU](https://img.shields.io/badge/Docker-CPU-2496ED?logo=docker&logoColor=white)
 
-**Retrouver des images par une description et des descriptions par une image.**
+**Find images using a description, and descriptions using an image.**
 
-[Prise en main](#démarrage-rapide) · [Architecture](#architecture) · [Données](#données) · [Docker](#docker-cpu) · [Résultats](#résultats-et-limites) · [Rapport](reports/Rapport.pdf)
+[Quickstart](#quickstart) · [Architecture](#architecture) · [Data](#data) · [Docker](#docker-cpu) · [Results](#results-and-limitations) · [Report](reports/Rapport.pdf)
 
-Projet de Master 2, Université de Montpellier, réalisé par **Belguith Ahmed Rami et Benboubaker Majdi** (janvier 2026).
+Second-year Master's project at the University of Montpellier, by **Belguith Ahmed Rami and Benboubaker Majdi** (January 2026).
 
-Le système recherche des images à partir d'une description, ou des descriptions à partir d'une image. Il utilise un CNN et un Transformer personnalisé, préentraînés sur quatre classes (`ball`, `bike`, `dog`, `water`), puis alignés dans un espace commun de dimension 128 par une perte contrastive symétrique. Il s'agit d'un modèle pédagogique inspiré de CLIP, entraîné localement, sans poids OpenAI préentraînés.
+The system retrieves images from a text description, or descriptions from an image. It uses a CNN and a custom Transformer, pretrained on four classes (`ball`, `bike`, `dog`, `water`), then aligned in a shared 128-dimensional space using a symmetric contrastive loss. This is an educational model inspired by CLIP, trained locally without pretrained OpenAI weights.
 
-Cette version sépare les expériences académiques d'un pipeline Python exécutable. Elle apporte une base d'industrialisation : modules réutilisables, CLI, configuration des runs, export des modèles, index associé au modèle et évaluation quantitative. Elle ne fournit pas encore de service web déployé.
+This version separates the academic experiments from an executable Python pipeline. It provides a foundation for production development: reusable modules, a CLI, run configuration, model exports, an index tied to the model, and quantitative evaluation. It does not yet include a deployed web service.
 
-## Démarrage rapide
+## Quickstart
 
-Depuis un terminal Bash Linux/WSL, avec Python 3.11 ou 3.12 :
+From a Linux/WSL Bash terminal, with Python 3.11 or 3.12:
 
 ```bash
 git clone https://github.com/ahmedramibelghuith/CLIP_Dog_Ball_Cyclist.git
@@ -27,91 +27,91 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python main.py --help
 
-# Vérifier la chaîne complète sans télécharger Flickr
+# Verify the complete pipeline without downloading Flickr
 python tests/smoke_pipeline.py
 ```
 
-Le test utilise 20 images synthétiques temporaires et une époque par modèle. Il vérifie le fonctionnement du pipeline, sans mesurer sa pertinence sur des images réelles. **Les poids entraînés ne sont pas fournis** : pour une recherche sur Flickr, préparer les [données](#données), puis [entraîner les modèles](#entraîner-les-trois-modèles) et [construire l'index](#construire-un-index-et-rechercher).
+The test uses 20 temporary synthetic images and one epoch per model. It checks that the pipeline works, without measuring retrieval quality on real images. **Trained weights are not included**: to search Flickr images, prepare the [data](#data), then [train the models](#train-all-three-models) and [build the index](#build-an-index-and-search).
 
-| Commande | Rôle | Résultat |
+| Command | Purpose | Output |
 |---|---|---|
-| `python main.py train` | Préentraîner les classifieurs puis aligner les encodeurs | Modèles `.keras`, configuration, partitions et historiques |
-| `python main.py index` | Encoder la galerie avec le modèle du run | `index.npz` |
-| `python main.py search` | Classer les correspondances d'une requête texte ou image | Résultats JSON |
-| `python main.py evaluate` | Mesurer la recherche sur le test | `metrics.json` |
+| `python main.py train` | Pretrain the classifiers, then align the encoders | `.keras` models, configuration, splits, and histories |
+| `python main.py index` | Encode the gallery using the run's model | `index.npz` |
+| `python main.py search` | Rank matches for a text or image query | JSON results |
+| `python main.py evaluate` | Measure retrieval on the test split | `metrics.json` |
 
-Chaque commande expose ses options avec `--help`. L'alternative conteneurisée est décrite dans [Docker (CPU)](#docker-cpu).
+Each command lists its options with `--help`. For containerized execution, see [Docker (CPU)](#docker-cpu).
 
-## Sommaire
+## Contents
 
 - [Architecture](#architecture)
-- [Organisation](#organisation)
+- [Project structure](#project-structure)
 - [Installation](#installation)
-- [Données](#données)
-- [Entraîner les trois modèles](#entraîner-les-trois-modèles)
-- [Construire un index et rechercher](#construire-un-index-et-rechercher)
-- [Évaluer](#évaluer)
+- [Data](#data)
+- [Train all three models](#train-all-three-models)
+- [Build an index and search](#build-an-index-and-search)
+- [Evaluate](#evaluate)
 - [Tests](#tests)
 - [Docker (CPU)](#docker-cpu)
-- [Notebooks et rapport historiques](#notebooks-et-rapport-historiques)
-- [Résultats et limites](#résultats-et-limites)
-- [Dépannage](#dépannage)
-- [Suite vers la production](#suite-vers-la-production)
-- [Contribuer et signaler un problème](#contribuer-et-signaler-un-problème)
+- [Original notebooks and report](#original-notebooks-and-report)
+- [Results and limitations](#results-and-limitations)
+- [Troubleshooting](#troubleshooting)
+- [Roadmap to production](#roadmap-to-production)
+- [Contributing and reporting issues](#contributing-and-reporting-issues)
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    I["Image RGB · 224 × 224"] --> CNN["CNN préentraîné sur les classes"]
-    T["Description · 32 tokens par défaut"] --> TR["Transformer préentraîné sur les classes"]
-    CNN --> PI["Projection 128 + normalisation L2"]
-    TR --> PT["Projection 128 + normalisation L2"]
-    PI --> C["Alignement contrastif symétrique"]
+    I["RGB image · 224 × 224"] --> CNN["CNN pretrained on class labels"]
+    T["Description · 32 tokens by default"] --> TR["Transformer pretrained on class labels"]
+    CNN --> PI["128-dimensional projection + L2 normalization"]
+    TR --> PT["128-dimensional projection + L2 normalization"]
+    PI --> C["Symmetric contrastive alignment"]
     PT --> C
-    C --> G["Index des embeddings"]
-    G --> S["Similarité cosinus · Top-K"]
+    C --> G["Embedding index"]
+    G --> S["Cosine similarity · Top-K"]
 ```
 
-Les deux encodeurs sont ajustés conjointement pendant l'étape CLIP. L'inférence encode la requête puis compare son vecteur aux embeddings de l'autre modalité. Les quatre classes servent au préentraînement ; les résultats de recherche sont des paires image/description classées par similarité.
+Both encoders are jointly fine-tuned during the CLIP stage. At inference time, the query is encoded and its vector is compared against embeddings from the other modality. The four classes are used for pretraining; retrieval results are image/description pairs ranked by similarity.
 
-## Organisation
+## Project structure
 
 ```text
 .
-├── Dockerfile                   # Image CPU du pipeline
-├── .dockerignore                # Contexte de construction minimal
-├── main.py                      # Point d'entrée CLI
+├── Dockerfile                   # CPU image for the pipeline
+├── .dockerignore                # Minimal build context
+├── main.py                      # CLI entry point
 ├── src/clip_project/
-│   ├── cli.py                   # Arguments et commandes
-│   ├── data.py                  # Validation CSV et partition commune
-│   ├── models.py                # CNN, Transformer et perte CLIP
-│   ├── pipeline.py              # Prétraitement, entraînement et chargement
-│   └── retrieval.py             # Indexation, recherche et Recall@K
-├── notebooks/                   # Expériences originales et sorties historiques
+│   ├── cli.py                   # Arguments and commands
+│   ├── data.py                  # CSV validation and shared data splits
+│   ├── models.py                # CNN, Transformer, and CLIP loss
+│   ├── pipeline.py              # Preprocessing, training, and loading
+│   └── retrieval.py             # Indexing, search, and Recall@K
+├── notebooks/                   # Original experiments and recorded outputs
 │   ├── 13_Image_Classifier.ipynb
 │   ├── 13_TextClassifier.ipynb
 │   ├── 13_CLIP_Infernce.ipynb
 │   └── UTILS.py
-├── reports/                     # Rapport et exports PDF des notebooks
-├── models_forclip/              # CSV, figures et index historiques conservés
-├── tests/                       # Partition, prétraitement et sérialisation
-├── requirements.txt             # Dépendances du pipeline
-├── requirements-notebooks.txt   # Dépendances supplémentaires des notebooks
-└── artifacts/                   # Runs générés, exclus de Git
+├── reports/                     # Report and notebook PDF exports
+├── models_forclip/              # Preserved historical CSVs, figures, and indexes
+├── tests/                       # Data splits, preprocessing, and serialization
+├── requirements.txt             # Pipeline dependencies
+├── requirements-notebooks.txt   # Additional notebook dependencies
+└── artifacts/                   # Generated runs, excluded from Git
 ```
 
 ## Installation
 
-Base cible : **Python 3.11 ou 3.12**, TensorFlow 2.20, Keras 3.13 et NumPy 2.1.3. Les commandes d'installation sont regroupées dans le [démarrage rapide](#démarrage-rapide). Le pipeline principal nécessite uniquement `requirements.txt` ; les dépendances Jupyter et de visualisation sont séparées dans `requirements-notebooks.txt`.
+Target environment: **Python 3.11 or 3.12**, TensorFlow 2.20, Keras 3.13, and NumPy 2.1.3. Installation commands are provided in the [quickstart](#quickstart). The main pipeline only requires `requirements.txt`; Jupyter and visualization dependencies are listed separately in `requirements-notebooks.txt`.
 
-Sous Windows PowerShell, activer l'environnement avec `.venv\Scripts\Activate.ps1`. Le CPU suffit pour lancer le pipeline ; un GPU accélère l'entraînement. Pour Linux/WSL avec GPU NVIDIA, consulter la [procédure officielle TensorFlow](https://www.tensorflow.org/install/pip) pour les dépendances CUDA adaptées.
+On Windows PowerShell, activate the environment with `.venv\Scripts\Activate.ps1`. The pipeline can run on a CPU; a GPU speeds up training. For Linux/WSL with an NVIDIA GPU, follow the [official TensorFlow installation guide](https://www.tensorflow.org/install/pip) for the appropriate CUDA dependencies.
 
-Les dépendances directes sont fixées ; un verrou complet des dépendances transitives reste à établir avant déploiement.
+Direct dependencies are pinned; a complete lockfile for transitive dependencies is still needed before deployment.
 
-## Données
+## Data
 
-Le jeu historique comprend **800 paires image/description**, soit 200 par classe. Télécharger et extraire l'[archive utilisée dans les notebooks](https://www.lirmm.fr/~poncelet/Ressources/flickr_long_subset.zip) pour obtenir, par exemple :
+The original dataset contains **800 image/description pairs**, with 200 pairs per class. Download and extract the [archive used in the notebooks](https://www.lirmm.fr/~poncelet/Ressources/flickr_long_subset.zip) to obtain a layout such as:
 
 ```text
 data/flickr_long_subset/
@@ -123,11 +123,11 @@ data/flickr_long_subset/
     └── water/
 ```
 
-Le téléchargement n'est pas automatique dans la CLI. Le CSV doit contenir `image_path,label,caption`, avec une seule paire par image, une description non vide et au moins dix images par classe. Les chemins relatifs sont résolus depuis `--image-root` : par exemple `images/dog/dog_581.jpg`.
+The CLI does not download the dataset automatically. The CSV must contain `image_path,label,caption`, with exactly one pair per image, a nonempty description, and at least ten images per class. Relative paths are resolved from `--image-root`, for example `images/dog/dog_581.jpg`.
 
-Les images et les poids `.keras` ne sont pas fournis dans ce dépôt. Les anciens index `.npz` ne suffisent pas pour encoder une nouvelle requête. L'accès actuel à l'archive et les droits de redistribution des données doivent être vérifiés avant diffusion d'une application.
+Images and `.keras` weights are not included in this repository. The historical `.npz` indexes alone cannot encode a new query. Check archive availability and data redistribution rights before distributing an application.
 
-## Entraîner les trois modèles
+## Train all three models
 
 ```bash
 python main.py train \
@@ -141,20 +141,20 @@ python main.py train \
   --seed 42
 ```
 
-La commande effectue une partition stratifiée commune **80 % / 10 % / 10 %**, adapte le tokenizer uniquement sur le train, préentraîne les deux classifieurs, puis ajuste les encodeurs avec la perte CLIP. Le prétraitement image est partagé entre entraînement et recherche : RGB, pixels en `[0,1]`, redimensionnement en `224×224`. La validation conserve tous ses exemples.
+The command creates shared, stratified **80% / 10% / 10%** splits, adapts the tokenizer on the training split only, pretrains both classifiers, and then fine-tunes the encoders using the CLIP loss. Training and retrieval share the same image preprocessing: RGB, pixels in `[0,1]`, and resizing to `224×224`. All validation examples are retained.
 
-Le dossier de sortie doit être vide, afin de préserver les runs précédents. Il contient :
+The output directory must be empty to preserve previous runs. It contains:
 
-- `train.csv`, `val.csv`, `test.csv` : partitions utilisées, avec chemins absolus ;
-- `config.json` : classes, vocabulaire, prétraitement, hyperparamètres et versions du runtime ;
-- `image.keras`, `text.keras`, `clip.keras` : modèles avec les meilleurs poids de validation restaurés ;
-- `*_history.json` : courbes d'apprentissage sous forme de valeurs numériques.
+- `train.csv`, `val.csv`, `test.csv`: the splits used, with absolute image paths;
+- `config.json`: classes, vocabulary, preprocessing, hyperparameters, and runtime versions;
+- `image.keras`, `text.keras`, `clip.keras`: models with their best validation weights restored;
+- `*_history.json`: numerical training curves.
 
-Le tokenizer n'est jamais réadapté après le préentraînement texte. Son vocabulaire, sa standardisation et sa longueur de séquence sont restaurés depuis `config.json`. Les couches personnalisées sont enregistrées pour la [sérialisation Keras](https://keras.io/guides/serialization_and_saving/).
+The tokenizer is never readapted after text pretraining. Its vocabulary, standardization, and sequence length are restored from `config.json`. Custom layers are registered for [Keras serialization](https://keras.io/guides/serialization_and_saving/).
 
-Les chemins absolus des CSV et des index sont locaux à la machine. Après déplacement des données, adapter les CSV et reconstruire l'index.
+Absolute paths in the CSVs and indexes are local to the machine. After moving the data, update the CSVs and rebuild the index.
 
-## Construire un index et rechercher
+## Build an index and search
 
 ```bash
 python main.py index \
@@ -164,22 +164,22 @@ python main.py index \
 
 python main.py search --run artifacts/run-001 --text "a dog on the beach" --top-k 5
 
-python main.py search --run artifacts/run-001 --image chemin/vers/image.jpg --top-k 5
+python main.py search --run artifacts/run-001 --image path/to/image.jpg --top-k 5
 ```
 
-`index` construit ou remplace `index.npz` dans le run. Il contient les embeddings des deux modalités, les chemins, les descriptions et une empreinte SHA-256 du modèle et de sa configuration. `search` refuse un index dont l'empreinte ne correspond plus au run. Si les données de la galerie changent, reconstruire également l'index.
+`index` creates or replaces `index.npz` in the run directory. It contains embeddings for both modalities, paths, descriptions, and a SHA-256 fingerprint of the model and its configuration. `search` rejects an index whose fingerprint no longer matches the run. Rebuild the index whenever the gallery data changes as well.
 
-Les résultats sont affichés en JSON avec score cosinus, chemin et description. Les vecteurs sont normalisés L2 ; les scores ne sont pas des probabilités. La recherche exacte par produit matriciel convient à cette petite galerie.
+Results are printed as JSON with a cosine similarity score, image path, and description. Vectors are L2-normalized; scores are not probabilities. Exact retrieval using matrix multiplication is suitable for this small gallery.
 
-## Évaluer
+## Evaluate
 
 ```bash
 python main.py evaluate --run artifacts/run-001
 ```
 
-Cette commande encode uniquement les paires du `test.csv` du run, vérifie l'absence de chevauchement de chemins avec train/validation et calcule **Recall@1, Recall@5 et Recall@10** dans les deux sens. Les résultats sont sauvegardés dans `metrics.json` avec la taille de la galerie. Les seuils supérieurs à la taille de la galerie sont omis.
+This command encodes only the pairs in the run's `test.csv`, checks that their paths do not overlap with training or validation paths, and computes **Recall@1, Recall@5, and Recall@10** in both directions. Results are saved to `metrics.json`, together with the gallery size. Cutoffs larger than the gallery size are omitted.
 
-L'évaluation suppose une seule description positive par image. Une galerie globale peut servir à la démonstration, mais les exemples d'entraînement ne doivent pas servir à mesurer la généralisation. La seed fixe les principales sources aléatoires ; elle ne garantit pas des résultats identiques entre tous les matériels.
+Evaluation assumes one positive description per image. A full gallery can be used for demonstrations, but training examples must not be used to measure generalization. The seed controls the main sources of randomness; it does not guarantee identical results across all hardware.
 
 ## Tests
 
@@ -187,23 +187,23 @@ L'évaluation suppose une seule description positive par image. Une galerie glob
 PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 
-Sous PowerShell : définir `$env:PYTHONPATH="src"` avant la commande Python. Les tests de données fonctionnent sans TensorFlow ; les tests de modèle sont ignorés s'il n'est pas installé. Ils vérifient notamment la normalisation des pixels, la conservation des embeddings après sauvegarde/rechargement, le tokenizer et le calcul du Recall@K.
+On PowerShell, set `$env:PYTHONPATH="src"` before running the Python command. Data tests run without TensorFlow; model tests are skipped if it is not installed. Tests cover pixel normalization, preservation of embeddings after saving and reloading, tokenizer consistency, and Recall@K computation.
 
-Pour vérifier aussi les cinq commandes de bout en bout sur 20 images synthétiques temporaires :
+To also exercise all five CLI invocations end to end on 20 temporary synthetic images:
 
 ```bash
 python tests/smoke_pipeline.py
 ```
 
-Ce test entraîne chaque modèle pendant une époque, recharge les artefacts et vérifie le rejet d’un index périmé. Il ne mesure pas la qualité sur Flickr.
+This test trains each model for one epoch, reloads the artifacts, and checks that a stale index is rejected. It does not measure retrieval quality on Flickr.
 
 ## Docker (CPU)
 
-Le `Dockerfile` fournit le pipeline CLI et ses tests dans une image Python 3.12, avec les mêmes dépendances que l'installation locale. Il exécute les commandes avec un utilisateur non root. Les images, modèles et rapports restent hors de l'image ; les données et les runs sont montés depuis la machine hôte. Le contexte est limité par [`.dockerignore`](.dockerignore), selon le mécanisme décrit dans la [documentation Docker](https://docs.docker.com/build/concepts/context/#dockerignore-files).
+The `Dockerfile` packages the CLI pipeline and its tests in a Python 3.12 image, using the same dependencies as the local installation. Commands run as a non-root user. Dataset images, model artifacts, and reports stay outside the container image; data and runs are mounted from the host. The build context is restricted through [`.dockerignore`](.dockerignore), as described in the [Docker documentation](https://docs.docker.com/build/concepts/context/#dockerignore-files).
 
-### Construire et vérifier l'image
+### Build and check the image
 
-Installer Docker Engine ou Docker Desktop et démarrer son moteur. Depuis la racine du projet, sous Linux ou WSL :
+Install Docker Engine or Docker Desktop and start its engine. From the project root on Linux or WSL:
 
 ```bash
 docker build -t clip-project:cpu .
@@ -212,15 +212,15 @@ docker run --rm clip-project:cpu --help
 docker run --rm --entrypoint python clip-project:cpu \
   -m unittest discover -s /app/tests -v
 
-# Test complet facultatif sur des images synthétiques temporaires
+# Optional end-to-end test using temporary synthetic images
 docker run --rm --entrypoint python clip-project:cpu /app/tests/smoke_pipeline.py
 ```
 
-La première construction télécharge TensorFlow et peut prendre plusieurs minutes. Aucun GPU n'est utilisé par cette image ; ajouter `--gpus all` ne suffit pas à la convertir en image CUDA.
+The first build downloads TensorFlow and may take several minutes. This image does not use a GPU; adding `--gpus all` alone does not turn it into a CUDA image.
 
-### Monter les données et conserver les résultats
+### Mount data and persist results
 
-Extraire le dataset dans `data/flickr_long_subset/`, comme décrit plus haut, puis définir cette fonction dans le terminal **Bash Linux/WSL**, depuis la racine du projet :
+Extract the dataset into `data/flickr_long_subset/`, as described above, then define this function in a **Linux/WSL Bash terminal**, from the project root:
 
 ```bash
 mkdir -p data artifacts
@@ -234,9 +234,9 @@ clip() {
 }
 ```
 
-Les données sont montées en lecture seule et les résultats sont écrits dans `artifacts/`. L'option `--user` conserve le propriétaire Linux des fichiers générés. La fonction doit être redéfinie dans chaque nouveau terminal.
+Data is mounted read-only, and results are written to `artifacts/`. The `--user` option preserves Linux ownership of generated files. Redefine the function in each new terminal.
 
-### Entraîner, indexer, rechercher et évaluer
+### Train, index, search, and evaluate
 
 ```bash
 clip train \
@@ -252,19 +252,19 @@ clip index \
 
 clip search --run /artifacts/run-docker-001 --text "a dog on the beach" --top-k 5
 
-# Remplacer le chemin par celui d'une image présente dans data/
-clip search --run /artifacts/run-docker-001 --image /data/ma-requete.jpg --top-k 5
+# Replace this path with an image available under data/
+clip search --run /artifacts/run-docker-001 --image /data/my-query.jpg --top-k 5
 
 clip evaluate --run /artifacts/run-docker-001
 ```
 
-Le run persiste sur l'hôte dans `artifacts/run-docker-001/`, même après suppression du conteneur. Utiliser un autre nom pour un nouvel entraînement : le dossier de sortie doit être vide.
+The run persists on the host in `artifacts/run-docker-001/`, even after the container is removed. Use a different name for a new training run: the output directory must be empty.
 
-Les CSV et index enregistrent les chemins **du conteneur** (`/data/...`). Garder les mêmes destinations de montage pour toutes les commandes. Pour réutiliser un run entraîné hors Docker, adapter les chemins des CSV de partition et reconstruire l'index ; les chemins absolus de la machine hôte ne sont pas automatiquement traduits.
+CSVs and indexes store **container paths** (`/data/...`). Keep the same mount destinations for every command. To reuse a run trained outside Docker, update the paths in the split CSVs and rebuild the index; absolute host paths are not translated automatically.
 
-## Notebooks et rapport historiques
+## Original notebooks and report
 
-Les notebooks conservent leur contenu et leurs sorties d'origine. Pour les consulter :
+The notebooks retain their original content and recorded outputs. To open them:
 
 ```bash
 python -m pip install -r requirements-notebooks.txt
@@ -272,53 +272,53 @@ cd notebooks
 jupyter lab
 ```
 
-Le module `UTILS.py` est placé à côté des notebooks pour résoudre leurs imports historiques. Leurs chemins `./models_forclip` et `./flickr_subset2` restent relatifs au dossier d'exécution : les adapter avant de relancer ces expériences. La CLI n'exécute pas les notebooks et ne recharge pas leurs anciens index.
+`UTILS.py` is placed alongside the notebooks to resolve their original imports. Their `./models_forclip` and `./flickr_subset2` paths remain relative to the execution directory: adjust them before rerunning these experiments. The CLI does not execute the notebooks or reload their historical indexes.
 
-Le [rapport académique](reports/Rapport.pdf) et les trois exports PDF sont conservés dans `reports/`.
+The [academic report](reports/Rapport.pdf) and the three PDF exports are preserved in `reports/`.
 
-Accès direct aux expériences : [classifieur image](notebooks/13_Image_Classifier.ipynb), [classifieur texte](notebooks/13_TextClassifier.ipynb), [CLIP et inférence](notebooks/13_CLIP_Infernce.ipynb).
+Open the experiments directly: [image classifier](notebooks/13_Image_Classifier.ipynb), [text classifier](notebooks/13_TextClassifier.ipynb), and [CLIP and inference](notebooks/13_CLIP_Infernce.ipynb).
 
-## Résultats et limites
+## Results and limitations
 
-Les sorties enregistrées des notebooks historiques contiennent les mesures suivantes :
+The recorded outputs of the original notebooks contain the following measurements:
 
-| Modèle | Mesure | Valeur enregistrée |
+| Model | Metric | Recorded value |
 |---|---|---:|
-| Classifieur image | Meilleure accuracy de validation | 31,25 % |
-| Classifieur texte | Meilleure accuracy de validation | 75,63 % |
-| CLIP | Meilleure perte de validation | 3,4747 |
+| Image classifier | Best validation accuracy | 31.25% |
+| Text classifier | Best validation accuracy | 75.63% |
+| CLIP | Best validation loss | 3.4747 |
 
-**Ces chiffres ne sont pas les résultats du pipeline restructuré.** Les partitions et le tokenizer historiques diffèrent. Le nouveau pipeline doit être réentraîné et évalué avec les Recall@K avant toute conclusion sur sa qualité.
+**These numbers are not results from the restructured pipeline.** The historical splits and tokenizer differ. The new pipeline must be retrained and evaluated using Recall@K before drawing conclusions about its quality.
 
-- Le dataset reste limité à 800 paires et quatre catégories.
-- L'ancien entraînement CLIP montre un surapprentissage ; une perte décroissante sur le train ne suffit pas à démontrer la qualité de recherche.
-- La version actuelle est une CLI ; elle ne fournit pas d'API ni d'interface web.
-- L'image Docker CPU est fournie ; sa construction reste à valider sur un moteur Docker actif.
+- The dataset is limited to 800 pairs and four categories.
+- The original CLIP training shows overfitting; decreasing training loss alone does not demonstrate retrieval quality.
+- The current version is a CLI; it does not provide an API or web interface.
+- A CPU Docker image definition is included; its build still needs to be validated with a running Docker engine.
 
-## Dépannage
+## Troubleshooting
 
-| Problème | Action |
+| Problem | Action |
 |---|---|
-| `No module named tensorflow` | Activer le bon environnement et installer `requirements.txt`. |
-| `clip.keras` ou `config.json` absent | Lancer `train`, puis vérifier le dossier indiqué par `--run`. |
-| Image introuvable | Vérifier `image_path`, `--image-root` et les points de montage Docker. |
-| Dossier de sortie non vide | Choisir un nouveau dossier de run pour `--output`. |
-| Index incompatible avec le modèle | Relancer `index` avec le modèle et la configuration du run. |
-| Impossible de joindre le moteur Docker | Démarrer Docker Desktop ou Docker Engine, puis vérifier `docker version`. |
-| Mémoire insuffisante pendant l'entraînement | Réduire `--batch-size` en gardant au moins deux paires par batch. |
+| `No module named tensorflow` | Activate the correct environment and install `requirements.txt`. |
+| Missing `clip.keras` or `config.json` | Run `train`, then check the directory passed to `--run`. |
+| Image not found | Check `image_path`, `--image-root`, and Docker mount destinations. |
+| Output directory is not empty | Choose a new run directory for `--output`. |
+| Index does not match the model | Rerun `index` with the run's model and configuration. |
+| Cannot connect to the Docker engine | Start Docker Desktop or Docker Engine, then check `docker version`. |
+| Out of memory during training | Reduce `--batch-size`, keeping at least two pairs per batch. |
 
-## Suite vers la production
+## Roadmap to production
 
-1. Valider les métriques et un seuil d'acceptation sur des données représentatives ; comparer à un modèle multimodal préentraîné.
-2. Verrouiller l'environnement, automatiser les tests en CI et versionner les données et les artefacts.
-3. Exposer la recherche via une API avec limites de taille, validation des fichiers et tests d'intégration.
-4. Étendre l’image Docker de la CLI au futur service API et charger les encodeurs une seule fois au démarrage.
-5. Mesurer latence, mémoire et qualité des résultats ; utiliser un index vectoriel spécialisé si la galerie grandit.
+1. Validate metrics and an acceptance threshold on representative data; compare against a pretrained multimodal model.
+2. Lock the environment, automate tests in CI, and version datasets and artifacts.
+3. Expose retrieval through an API with size limits, file validation, and integration tests.
+4. Extend the CLI Docker image to support the future API service, loading encoders once at startup.
+5. Monitor latency, memory, and retrieval quality; use a specialized vector index if the gallery grows.
 
-Le CNN conserve volontairement l'architecture académique avec `Flatten`, coûteuse pour 800 images. Une évolution vers un pooling global ou un backbone préentraîné devra être évaluée séparément. Les descriptions sont tronquées à 32 tokens par défaut ; `--sequence-length` permet de tester une autre longueur.
+The CNN deliberately retains the academic architecture with `Flatten`, which is costly for 800 images. A move to global pooling or a pretrained backbone should be evaluated separately. Descriptions are truncated to 32 tokens by default; use `--sequence-length` to experiment with another length.
 
-## Contribuer et signaler un problème
+## Contributing and reporting issues
 
-Pour une correction, ouvrir une pull request avec une description du changement et les commandes de validation exécutées. Pour signaler un problème, utiliser les [issues du dépôt](https://github.com/ahmedramibelghuith/CLIP_Dog_Ball_Cyclist/issues) en précisant la commande, les versions de Python/TensorFlow, le système et le message d'erreur.
+For a fix, open a pull request describing the change and the validation commands you ran. To report a problem, use the [repository issues](https://github.com/ahmedramibelghuith/CLIP_Dog_Ball_Cyclist/issues), including the command, Python/TensorFlow versions, operating system, and error message.
 
-**Auteurs :** Belguith Ahmed Rami et Benboubaker Majdi — Master 2, Université de Montpellier. Le [rapport](reports/Rapport.pdf) décrit le travail académique initial.
+**Authors:** Belguith Ahmed Rami and Benboubaker Majdi — second-year Master's program, University of Montpellier. The [report](reports/Rapport.pdf) describes the original academic work.
